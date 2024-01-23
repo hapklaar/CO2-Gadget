@@ -152,7 +152,8 @@ void setElementLocations() {
 // }
 
 void setDisplayBrightness(uint32_t newBrightness) {
-    // TO-DO: Fix this
+// TO-DO: Fix this
+#ifdef TTGO_TDISPLAY
     Serial.printf("-->[TFT ] Actual display brightness value at %d\n", actualDisplayBrightness);
     Serial.printf("-->[TFT ] Setting display brightness value at %d\n", newBrightness);
     ledcWrite(BACKLIGHT_PWM_CHANNEL, newBrightness);  // 0-15, 0-255 (with 8 bit resolution); 0=totally dark;255=max brightness
@@ -160,6 +161,7 @@ void setDisplayBrightness(uint32_t newBrightness) {
     Serial.printf("-->[TFT ] newBrightness value at %d\n", newBrightness);
     actualDisplayBrightness = newBrightness;
     Serial.printf("-->[TFT ] Actual display brightness value at %d\n", actualDisplayBrightness);
+#endif
 }
 
 void turnOffDisplay() {
@@ -504,9 +506,7 @@ void showCO2units(int32_t posX, int32_t posY) {
     spr.unloadFont();
 }
 
-void displayShowValues(uint16_t co2) {
-    // tft.setTextSize(0);
-    // tft.fillScreen(TFT_BLACK);
+void displayShowValues() {
     uint8_t currenttDatum = tft.getTextDatum();
     showCO2(co2, elementPosition.co2X, elementPosition.co2Y);
     showCO2units(elementPosition.co2UnitsX, elementPosition.co2UnitsY);
