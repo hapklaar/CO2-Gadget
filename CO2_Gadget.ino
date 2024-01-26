@@ -46,7 +46,7 @@ uint16_t maxWiFiConnectionRetries = 20;
 bool mqttDiscoverySent = false;
 
 // Display and menu options
-uint32_t DisplayBrightness = 100;
+uint16_t DisplayBrightness = 100;
 bool displayReverse = false;
 bool showFahrenheit = false;
 bool displayShowTemperature = true;
@@ -71,19 +71,20 @@ uint16_t timeBetweenBatteryRead = 15;
 uint64_t lastTimeBatteryRead = 0;  // Time of last battery reading
 
 // Variables to control automatic display off to save power
-uint16_t actualDisplayBrightness = 100;  // To know if it's on or off
+bool workingOnExternalPower = true;      // True if working on external power (USB connected)
+uint32_t actualDisplayBrightness = 100;  // To know if it's on or off
 bool displayOffOnExternalPower = false;
 uint16_t timeToDisplayOff = 0;                // Time in seconds to turn off the display to save power.
 volatile uint64_t lastTimeButtonPressed = 0;  // Last time stamp a button was pressed
 
-// Variables for MQTT timming TO-DO
+// Variables for MQTT timming
 uint16_t timeBetweenMQTTPublish = 60;  // Time in seconds between MQTT transmissions
-uint16_t timeToKeepAliveMQTT = 3600;   // Maximum time in seconds between MQTT transmissions - Default: 1 Hour TO-DO: Implement logic
+uint16_t timeToKeepAliveMQTT = 3600;   // Maximum time in seconds between MQTT transmissions - Default: 1 Hour
 uint64_t lastTimeMQTTPublished = 0;    // Time of last MQTT transmission
 
 // Variables for ESP-NOW timming
 uint16_t timeBetweenESPNowPublish = 60;  // Time in seconds between ESP-NOW transmissions
-uint16_t timeToKeepAliveESPNow = 3600;   // Maximum time in seconds between ESP-NOW transmissions - Default: 1 Hour TO-DO: Implement logic
+uint16_t timeToKeepAliveESPNow = 3600;   // Maximum time in seconds between ESP-NOW transmissions - Default: 1 Hour
 uint64_t lastTimeESPNowPublished = 0;    // Time of last ESP-NOW transmission
 
 // Variables for color and output ranges
@@ -124,6 +125,8 @@ uint16_t co2RedRange = 1000;
 #endif
 #include <FS.h>
 #include <SPIFFS.h>
+
+Stream& miSerialPort = Serial;
 
 // Functions and enum definitions
 void reverseButtons(bool reversed);
@@ -180,6 +183,13 @@ uint16_t batteryFullyChargedMillivolts = 4200;  // Voltage of battery when it is
 /*********                                                                                   *********/
 /*****************************************************************************************************/
 #include <CO2_Gadget_WIFI.h>
+
+/*****************************************************************************************************/
+/*********                                                                                   *********/
+/*********                         INCLUDE IMPROV FUNCTIONALITY                              *********/
+/*********                                                                                   *********/
+/*****************************************************************************************************/
+#include "CO2_Gadget_Improv.h"
 
 /*****************************************************************************************************/
 /*********                                                                                   *********/
@@ -358,20 +368,24 @@ void readingsLoop() {
 
 void adjustBrightnessLoop() {
 #if defined(SUPPORT_OLED) || defined(SUPPORT_TFT)
-    if (timeToDisplayOff == 0) return;  // TFT Always ON
 
-    // If battery voltage is more than 5% of the fully charged battery voltage, asume it's working on external power
-    boolean workingOnExternalPower = (battery_voltage * 1000 > batteryFullyChargedMillivolts + (batteryFullyChargedMillivolts * 5 / 100));
+    // Display backlight IS sleeping
+    if ((actualDisplayBrightness == 0) && (actualDisplayBrightness != DisplayBrightness)) {
+        if ((!displayOffOnExternalPower) && (workingOnExternalPower)) {
+            setDisplayBrightness(DisplayBrightness);
+        }
+        return;
+    }
 
-    if (actualDisplayBrightness != DisplayBrightness) {
+    // Display backlight is NOT sleeping and brightness change detected
+    if ((actualDisplayBrightness > 0) && (actualDisplayBrightness != DisplayBrightness)) {
         setDisplayBrightness(DisplayBrightness);
     }
 
     // If configured not to turn off the display on external power and it's working on external power, do nothing and return (except if DisplayBrightness is 0))
     if ((!displayOffOnExternalPower) && (workingOnExternalPower)) {
-        if (actualDisplayBrightness == 0)  // Exception: When USB connected (just connected) & TFT is OFF -> Turn Display ON
-        {
-            setDisplayBrightness(DisplayBrightness);  // Turn on the display
+        if (actualDisplayBrightness == 0) {
+            setDisplayBrightness(DisplayBrightness);  // Exception: When USB connected (just connected) & TFT is OFF -> Turn Display ON
         }
         return;
     }
@@ -385,35 +399,36 @@ void adjustBrightnessLoop() {
 
 void batteryLoop() {
     const float lastBatteryVoltage = battery_voltage;
+    readBatteryVoltage();
     if (!inMenu) {
-        readBatteryVoltage();
         if (abs(lastBatteryVoltage - battery_voltage) >= 0.1) {  // If battery voltage changed by at least 0.1, update battery level
             battery_level = getBatteryPercentage();
             // Serial.printf("-->[BATT] Battery Level: %d%%\n", battery.level());
         }
     }
+    // If battery voltage is more than 5% of the fully charged battery voltage, asume it's working on external power
+    workingOnExternalPower = (battery_voltage * 1000 > batteryFullyChargedMillivolts + (batteryFullyChargedMillivolts * 5 / 100));
 }
 
 void utilityLoop() {
     static float lastCheckedVoltage = 0;
     int16_t actualCPUFrequency = getCpuFrequencyMhz();
+    const float highVoltageThreshold = 4.5;
+    const int16_t highCpuFrequency = 240;
+    const int16_t lowCpuFrequency = 80;
 
-    if (battery_voltage > 4.5 && actualCPUFrequency != 240) {
+    if (battery_voltage > highVoltageThreshold && actualCPUFrequency != highCpuFrequency) {
         Serial.printf("-->[BATT] Battery voltage: %.2fV. Increasing CPU frequency to 240MHz\n", battery_voltage);
-        Serial.flush();
-        Serial.end();
-        setCpuFrequencyMhz(240);  // High CPU frequency when working on external power
-        Serial.begin(115200);
-        lastCheckedVoltage = battery_voltage;
-    } else if (battery_voltage < 4.5 && actualCPUFrequency != 80) {
+        setCpuFrequencyMhz(highCpuFrequency);
+    } else if (battery_voltage < highVoltageThreshold && actualCPUFrequency != lowCpuFrequency) {
         Serial.printf("-->[BATT] Battery voltage: %.2fV. Decreasing CPU frequency to 80MHz\n", battery_voltage);
+        setCpuFrequencyMhz(lowCpuFrequency);
+    }
+
+    if (battery_voltage != lastCheckedVoltage) {
         Serial.flush();
         Serial.end();
-        setCpuFrequencyMhz(80);  // Lower CPU frequency to reduce power consumption
         Serial.begin(115200);
-        lastCheckedVoltage = battery_voltage;
-    } else if (battery_voltage != lastCheckedVoltage) {
-        // The voltage has changed, but the CPU frequency is already at the desired value.
         lastCheckedVoltage = battery_voltage;
     }
 }
@@ -444,6 +459,7 @@ void setup() {
 
     Serial.printf("-->[STUP] Starting up...\n\n");
 
+    initImprov();
     initPreferences();
     initBattery();
     initGPIO();
@@ -475,11 +491,13 @@ void setup() {
 }
 
 void loop() {
+    if (Serial.peek() != -1 && Serial.peek() != 0x2A) {  // 0x2A is the '*' character
+        improvLoopNew();
+    }
     batteryLoop();
     wifiClientLoop();
     mqttClientLoop();
     sensorsLoop();
-    readBatteryVoltage();
     utilityLoop();
     outputsLoop();
     processPendingCommands();
