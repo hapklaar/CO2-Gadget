@@ -123,7 +123,7 @@ void setElementLocations() {
 
     if (displayWidth == 320 && displayHeight == 170) {  // T-Display-S3 and similar
         elementPosition.co2X = displayWidth - 33;
-        elementPosition.co2Y = displayHeight - 15;
+        elementPosition.co2Y = displayHeight - 38;
         elementPosition.co2FontDigitsHeight = 100;  // Digits height for the font used (not the same as whole font height)
         elementPosition.co2UnitsX = displayWidth - 33;
         elementPosition.co2UnitsY = displayHeight - 50;
@@ -206,14 +206,6 @@ void displaySplashScreen() {
     tft.pushImage(GadgetLogoX, GadgetLogoY, GadgetLogoWidth, GadgetLogoHeight, GadgetLogo);
 }
 
-// void displaySplashScreen() {
-//     tft.fillScreen(TFT_WHITE);
-//     tft.setSwapBytes(true);
-//     tft.pushImage(60, 12, 118, 40, eMarieteLogo);
-//     tft.pushImage(10, 50, 92, 72, CO2Logo);
-//     tft.pushImage(112, 67, 122, 46, GadgetLogo);
-// }
-
 void initBacklight() {
 #ifdef TTGO_TDISPLAY
     pinMode(TFT_BL, OUTPUT);
@@ -221,10 +213,10 @@ void initBacklight() {
 #endif
 #ifdef TDISPLAY_S3
     pinMode(TFT_BL, OUTPUT);
-    pinMode(TFT_BACKLIGHT_ON, OUTPUT);
+    pinMode(TFT_POWER_ON_BATTERY, OUTPUT);
     delay(50);
     digitalWrite(TFT_BL, HIGH);
-    digitalWrite(TFT_BACKLIGHT_ON, HIGH);
+    digitalWrite(TFT_POWER_ON_BATTERY, HIGH);
 #endif
 }
 
