@@ -426,9 +426,13 @@ void utilityLoop() {
     }
 
     if (battery_voltage != lastCheckedVoltage) {
+#if defined(CONFIG_IDF_TARGET_ESP32)
         Serial.flush();
         Serial.end();
         Serial.begin(115200);
+#endif
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#endif
         lastCheckedVoltage = battery_voltage;
     }
 }
