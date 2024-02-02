@@ -27,7 +27,6 @@ String wifiSSID = WIFI_SSID_CREDENTIALS;
 String wifiPass = WIFI_PW_CREDENTIALS;
 String mDNSName = "Unset";
 String MACAddress = "Unset";
-// String peerESPNow = ESPNOW_PEER_MAC_ADDRESS;
 uint8_t peerESPNowAddress[] = ESPNOW_PEER_MAC_ADDRESS;
 
 // Communication options
@@ -35,6 +34,7 @@ bool activeBLE = true;
 bool activeWIFI = true;
 bool activeMQTT = true;
 bool activeESPNOW = false;
+bool activeOTA = false;
 bool troubledWIFI = false;               // There are problems connecting to WIFI. Temporary suspend WIFI
 bool troubledMQTT = false;               // There are problems connecting to MQTT. Temporary suspend MQTT
 uint64_t timeTroubledWIFI = 0;           // Time since WIFI is troubled
@@ -44,6 +44,7 @@ uint64_t timeToRetryTroubledMQTT = 900;  // Time in seconds to retry MQTT connec
 uint16_t WiFiConnectionRetries = 0;
 uint16_t maxWiFiConnectionRetries = 20;
 bool mqttDiscoverySent = false;
+bool wifiChanged = false;
 
 // Display and menu options
 uint16_t DisplayBrightness = 100;
@@ -54,7 +55,6 @@ bool displayShowHumidity = true;
 bool displayShowBattery = true;
 bool displayShowCO2 = true;
 bool displayShowPM25 = true;
-
 bool debugSensors = false;
 bool inMenu = false;
 uint16_t measurementInterval = 10;
@@ -63,6 +63,7 @@ int8_t selectedCO2Sensor = -1;
 bool outputsModeRelay = false;
 uint8_t channelESPNow = 1;
 uint16_t boardIdESPNow = 0;
+uint64_t timeInitializationCompleted = 0;
 
 // Variables for Battery reading
 float battery_voltage = 0;
@@ -410,30 +411,32 @@ void batteryLoop() {
     workingOnExternalPower = (battery_voltage * 1000 > batteryFullyChargedMillivolts + (batteryFullyChargedMillivolts * 5 / 100));
 }
 
+void setCpuFrequencyAndReinitSerial(int16_t newCpuFrequency) {
+    while (Serial.available()) {
+        Serial.read();
+    }
+    delay(100); // time to write all data to serial
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    Serial.end();
+    setCpuFrequencyMhz(newCpuFrequency);
+    Serial.begin(115200);
+#endif
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    setCpuFrequencyMhz(newCpuFrequency);
+#endif
+}
+
 void utilityLoop() {
-    static float lastCheckedVoltage = 0;
     int16_t actualCPUFrequency = getCpuFrequencyMhz();
-    const float highVoltageThreshold = 4.5;
     const int16_t highCpuFrequency = 240;
     const int16_t lowCpuFrequency = 80;
 
-    if (battery_voltage > highVoltageThreshold && actualCPUFrequency != highCpuFrequency) {
-        Serial.printf("-->[BATT] Battery voltage: %.2fV. Increasing CPU frequency to 240MHz\n", battery_voltage);
-        setCpuFrequencyMhz(highCpuFrequency);
-    } else if (battery_voltage < highVoltageThreshold && actualCPUFrequency != lowCpuFrequency) {
-        Serial.printf("-->[BATT] Battery voltage: %.2fV. Decreasing CPU frequency to 80MHz\n", battery_voltage);
-        setCpuFrequencyMhz(lowCpuFrequency);
-    }
-
-    if (battery_voltage != lastCheckedVoltage) {
-#if defined(CONFIG_IDF_TARGET_ESP32)
-        Serial.flush();
-        Serial.end();
-        Serial.begin(115200);
-#endif
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
-#endif
-        lastCheckedVoltage = battery_voltage;
+    if (workingOnExternalPower && actualCPUFrequency != highCpuFrequency) {
+        Serial.printf("-->[BATT] Battery voltage: %.2fV. Increasing CPU frequency to %dMHz\n", battery_voltage, highCpuFrequency);
+        setCpuFrequencyAndReinitSerial(highCpuFrequency);
+    } else if (!workingOnExternalPower && actualCPUFrequency != lowCpuFrequency) {
+        Serial.printf("-->[BATT] Battery voltage: %.2fV. Decreasing CPU frequency to %dMHz\n", battery_voltage, lowCpuFrequency);
+        setCpuFrequencyAndReinitSerial(lowCpuFrequency);
     }
 }
 
@@ -474,8 +477,9 @@ void setup() {
 #ifdef SUPPORT_BLE
     initBLE();
 #endif
-    initWifi();
     initSensors();
+    initWifi();
+    wifiChanged = false;
 #ifdef SUPPORT_ESPNOW
     initESPNow();
 #endif
@@ -484,25 +488,23 @@ void setup() {
 #endif
     menu_init();
     buttonsInit();
-    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, brown_reg_temp);  // enable brownout detector
-    Serial.println("-->[STUP] Ready.");
-
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("");
         printLargeASCII(WiFi.localIP().toString().c_str());
         Serial.println("");
     }
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, brown_reg_temp);  // enable brownout detector
+    Serial.println("-->[STUP] Ready.");
+    timeInitializationCompleted = millis();
 }
 
 void loop() {
-    if (Serial.peek() != -1 && Serial.peek() != 0x2A) {  // 0x2A is the '*' character
-        improvLoopNew();
-    }
     batteryLoop();
+    utilityLoop();
+    improvLoop();
     wifiClientLoop();
     mqttClientLoop();
     sensorsLoop();
-    utilityLoop();
     outputsLoop();
     processPendingCommands();
     readingsLoop();
