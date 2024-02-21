@@ -15,6 +15,7 @@ bool autoSelfCalibration = false;
 float tempOffset = 0.0f;
 
 volatile uint16_t co2 = 0;
+volatile uint16_t previousCO2Value = 0;
 float temp, tempFahrenheit, hum = 0;
 String mainDeviceSelected = "";
 
@@ -38,28 +39,37 @@ void printSensorsDetected() {
 }
 
 void onSensorDataOk() {
-    if (!inMenu) {
-        Serial.print("-->[SENS] CO2: " + String(sensors.getCO2()));
-        Serial.print(" CO2humi: " + String(sensors.getCO2humi()));
-        Serial.print(" CO2temp: " + String(sensors.getCO2temp()));
-        Serial.print(" H: " + String(sensors.getHumidity()));
-        Serial.println(" T: " + String(sensors.getTemperature()));
-    }
-
+    previousCO2Value = co2;
     co2 = sensors.getCO2();
-
     hum = sensors.getHumidity();
     if (hum == 0.0) hum = sensors.getCO2humi();
-
     temp = sensors.getTemperature();
     if (temp == 0.0) temp = sensors.getCO2temp();  // TO-DO: temp could be 0.0
-
     tempFahrenheit = (temp * 1.8 + 32);
-
+    if (!inMenu) {
+        Serial.printf("-->[SENS] CO2: %d CO2temp: %.2f CO2humi: %.2f H: %.2f T: %.2f\n", co2, sensors.getCO2temp(), sensors.getCO2humi(), sensors.getHumidity(), sensors.getTemperature());
+    }
     newReadingsAvailable = true;
+    // Serial.printf("-->[SENS] Free heap: %d\n", ESP.getFreeHeap());
 }
 
 void onSensorDataError(const char *msg) { Serial.println(msg); }
+
+// To move into the sensorlib
+uint16_t getSCD4xFeatureSet() {
+    uint16_t featureSet = 0;
+    uint16_t error = 0;
+    error = sensors.scd4x.stopPeriodicMeasurement();
+    error = sensors.scd4x.getFeatures(featureSet);
+    if (error != 0) {
+        Serial.println("-->[SENS] SCD4x getFeatures error: " + String(error));
+    } else {
+        uint8_t typeOfSensor = ((featureSet & 0x1000) >> 12);
+        Serial.println("-->[SENS] SCD4x Sensor Type: SCD4" + String(typeOfSensor));
+    }
+    sensors.scd4x.startPeriodicMeasurement();
+    return featureSet;
+}
 
 void initSensors() {
     const int8_t None = -1, AUTO = 0, MHZ19 = 4, CM1106 = 5, SENSEAIRS8 = 6, DEMO = 127;
@@ -85,9 +95,9 @@ void initSensors() {
     Wire.begin();
 #endif
 
-Serial.println("-->[SENS] Detecting sensors..");
+    Serial.println("-->[SENS] Detecting sensors..");
 
-uint16_t defaultCO2MeasurementInterval = 5;  // TO-DO: Move to preferences
+    uint16_t defaultCO2MeasurementInterval = 5;  // TO-DO: Move to preferences
 // Breaking change: https://github.com/kike-canaries/canairio_sensorlib/pull/110
 // CanAirIO Sensorlib was multipliying sample time by two until rev 340 (inclusive). Adjust to avoid need for recalibration.
 #ifdef CSL_REVISION  // CanAirIO Sensorlib Revision > 340 (341 where CSL_REVISION was included)
@@ -104,6 +114,7 @@ uint16_t defaultCO2MeasurementInterval = 5;  // TO-DO: Move to preferences
     sensors.setOnErrorCallBack(&onSensorDataError);  // [optional] error callback
     sensors.setDebugMode(debugSensors);              // [optional] debug mode
     sensors.setTempOffset(tempOffset);
+    sensors.setCO2AltitudeOffset(altitudeMeters);
     // sensors.setAutoSelfCalibration(false); // TO-DO: Implement in CanAirIO Sensors Lib
 
     Serial.printf("-->[SENS] Selected CO2 Sensor: %d\n", selectedCO2Sensor);
@@ -130,11 +141,18 @@ uint16_t defaultCO2MeasurementInterval = 5;  // TO-DO: Move to preferences
 
     if (!sensorsGetMainDeviceSelected().isEmpty()) {
         Serial.println("-->[SENS] Sensor configured: " + sensorsGetMainDeviceSelected());
+
+        // Temporary getFeatureSet() for SCD4x. To be moved into the sensorlib
+        if (sensorsGetMainDeviceSelected() == "SCD4X") {
+            Serial.println("-->[SENS] SCD4x Feature Set: " + String(getSCD4xFeatureSet()));
+        }
     }
 }
 
 void sensorsLoop() {
-    sensors.loop();
+    if (!buzzerBeeping) {
+        sensors.loop();
+    }
 }
 
 #endif  // CO2_Gadget_Sensors_h

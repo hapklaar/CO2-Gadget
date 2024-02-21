@@ -15,6 +15,24 @@
 #endif
 /*****************************************************************************************************/
 
+// Functions and enum definitions
+void reverseButtons(bool reversed);
+void outputsLoop();
+
+// Define enum for toneBuzzerBeep
+enum ToneBuzzerBeep {
+    BUZZER_TONE_LOW = 300,
+    BUZZER_TONE_MED = 1000,
+    BUZZER_TONE_HIGH = 2000
+};
+
+// Define enum for durationBuzzerBeep
+enum DurationBuzzerBeep {
+    DURATION_BEEP_SHORT = 50,
+    DURATION_BEEP_MEDIUM = 150,
+    DURATION_BEEP_LONG = 300
+};
+
 // Next data always defined to be able to configure in menu
 String hostName = UNITHOSTNAME;
 String rootTopic = UNITHOSTNAME;
@@ -25,7 +43,6 @@ String mqttUser = "";
 String mqttPass = "";
 String wifiSSID = WIFI_SSID_CREDENTIALS;
 String wifiPass = WIFI_PW_CREDENTIALS;
-String mDNSName = "Unset";
 String MACAddress = "Unset";
 uint8_t peerESPNowAddress[] = ESPNOW_PEER_MAC_ADDRESS;
 
@@ -57,10 +74,18 @@ bool displayShowCO2 = true;
 bool displayShowPM25 = true;
 bool debugSensors = false;
 bool inMenu = false;
+bool shouldWakeUpDisplay = false;
 uint16_t measurementInterval = 10;
 bool bleInitialized = false;
 int8_t selectedCO2Sensor = -1;
 bool outputsModeRelay = false;
+
+// Variables for buzzer functionality
+bool buzzerBeeping = false;
+uint16_t toneBuzzerBeep = BUZZER_TONE_MED;
+uint16_t durationBuzzerBeep = DURATION_BEEP_MEDIUM;
+int16_t timeBetweenBuzzerBeeps = -1;
+
 uint8_t channelESPNow = 1;
 uint16_t boardIdESPNow = 0;
 uint64_t timeInitializationCompleted = 0;
@@ -129,10 +154,6 @@ uint16_t co2RedRange = 1000;
 
 Stream& miSerialPort = Serial;
 
-// Functions and enum definitions
-void reverseButtons(bool reversed);
-void outputsLoop();
-
 enum notificationTypes { notifyNothing,
                          notifyInfo,
                          notifyWarning,
@@ -142,9 +163,6 @@ bool displayNotification(String notificationText, String notificationText2, noti
 #if (!SUPPORT_OLED && !SUPPORT_TFT)
 bool displayNotification(String notificationText, String notificationText2, notificationTypes notificationType) { return true; }
 bool displayNotification(String notificationText, notificationTypes notificationType) { return true; }
-#endif
-#if defined(SUPPORT_OLED) || defined(SUPPORT_TFT)
-// void setDisplayBrightness(uint32_t newBrightness);
 #endif
 
 /*****************************************************************************************************/
@@ -242,6 +260,13 @@ uint16_t batteryFullyChargedMillivolts = 4200;  // Voltage of battery when it is
 
 /*****************************************************************************************************/
 /*********                                                                                   *********/
+/*********                       INCLUDE BUZZER FUNCIONALITY                                 *********/
+/*********                                                                                   *********/
+/*****************************************************************************************************/
+#include "CO2_Gadget_Buzzer.h"
+
+/*****************************************************************************************************/
+/*********                                                                                   *********/
 /*********                         INCLUDE MENU FUNCIONALITY                                 *********/
 /*********                                                                                   *********/
 /*****************************************************************************************************/
@@ -259,6 +284,16 @@ uint16_t batteryFullyChargedMillivolts = 4200;  // Voltage of battery when it is
 
 static int64_t lastReadingsCommunicationTime = 0;
 static int startCheckingAfterUs = 1900000;
+
+void wakeUpDisplay() {
+    if (actualDisplayBrightness == 0) {
+#if defined(SUPPORT_OLED) || defined(SUPPORT_TFT)
+        setDisplayBrightness(DisplayBrightness);
+#endif
+        lastTimeButtonPressed = millis();
+    }
+    return;
+}
 
 void processPendingCommands() {
     if (pendingCalibration == true) {
@@ -288,8 +323,10 @@ void processPendingCommands() {
 }
 
 void initGPIO() {
+    #ifdef GREEN_PIN
     pinMode(GREEN_PIN, OUTPUT);
     digitalWrite(GREEN_PIN, LOW);
+    #endif
     pinMode(BLUE_PIN, OUTPUT);
     digitalWrite(BLUE_PIN, LOW);
     pinMode(RED_PIN, OUTPUT);
@@ -298,12 +335,14 @@ void initGPIO() {
 
 void outputsRelays() {
     if ((!outputsModeRelay) || (co2 == 0)) return;  // Don't turn on relays until there is CO2 Data
+    #ifdef GREEN_PIN
     if (co2 >= co2OrangeRange) {
         digitalWrite(GREEN_PIN, GREEN_PIN_LOW);
     }
     if (co2 < co2OrangeRange) {
         digitalWrite(GREEN_PIN, GREEN_PIN_HIGH);
     }
+    #endif
     if (co2 >= co2OrangeRange) {
         digitalWrite(BLUE_PIN, BLUE_PIN_HIGH);
     }
@@ -321,26 +360,33 @@ void outputsRelays() {
 void outputsRGBLeds() {
     if ((outputsModeRelay) || (co2 == 0)) return;  // Don't turn on led until there is CO2 Data
     if (co2 > co2RedRange) {
-        digitalWrite(RED_PIN, RED_PIN_HIGH);
+        #ifdef GREEN_PIN
         digitalWrite(GREEN_PIN, GREEN_PIN_LOW);
+        #endif
+        digitalWrite(RED_PIN, RED_PIN_HIGH);
         digitalWrite(BLUE_PIN, BLUE_PIN_LOW);
         return;
     }
     if (co2 >= co2OrangeRange) {
-        digitalWrite(BLUE_PIN, BLUE_PIN_LOW);
+        #ifdef GREEN_PIN
         digitalWrite(GREEN_PIN, GREEN_PIN_HIGH);
+        #endif
+        digitalWrite(BLUE_PIN, BLUE_PIN_LOW);
         digitalWrite(RED_PIN, RED_PIN_HIGH);
         return;
     }
+    #ifdef GREEN_PIN
     digitalWrite(GREEN_PIN, GREEN_PIN_HIGH);
-    digitalWrite(BLUE_PIN, GREEN_PIN_LOW);
-    digitalWrite(RED_PIN, GREEN_PIN_LOW);
+    #endif
+    digitalWrite(BLUE_PIN, BLUE_PIN_LOW);
+    digitalWrite(RED_PIN, RED_PIN_LOW);
 }
 
 void outputsLoop() {
     outputsRelays();
     outputsRGBLeds();
     neopixelLoop();
+    buzzerLoop();
 }
 
 void readingsLoop() {
@@ -370,6 +416,21 @@ void readingsLoop() {
 void adjustBrightnessLoop() {
 #if defined(SUPPORT_OLED) || defined(SUPPORT_TFT)
 
+    if (shouldWakeUpDisplay) {
+        wakeUpDisplay();
+        shouldWakeUpDisplay = false;
+    }
+
+    // If battery pin not connected, assume it's working on external power
+    if (battery_voltage < 1) {
+        workingOnExternalPower = true;
+    }
+
+    if (inMenu) {
+        setDisplayBrightness(DisplayBrightness);
+        return;
+    }
+
     // Display backlight IS sleeping
     if ((actualDisplayBrightness == 0) && (actualDisplayBrightness != DisplayBrightness)) {
         if ((!displayOffOnExternalPower) && (workingOnExternalPower)) {
@@ -391,7 +452,7 @@ void adjustBrightnessLoop() {
         return;
     }
 
-    if ((actualDisplayBrightness != 0) && (millis() - lastTimeButtonPressed >= timeToDisplayOff * 1000)) {
+    if ((actualDisplayBrightness != 0) && (millis() - lastTimeButtonPressed >= timeToDisplayOff * 1000) && DisplayBrightness > 0) {
         Serial.println("-->[MAIN] Turning off display to save power. Actual brightness: " + String(actualDisplayBrightness));
         turnOffDisplay();
     }
@@ -415,7 +476,7 @@ void setCpuFrequencyAndReinitSerial(int16_t newCpuFrequency) {
     while (Serial.available()) {
         Serial.read();
     }
-    delay(100); // time to write all data to serial
+    delay(100);  // time to write all data to serial
 #if defined(CONFIG_IDF_TARGET_ESP32)
     Serial.end();
     setCpuFrequencyMhz(newCpuFrequency);
@@ -471,6 +532,7 @@ void setup() {
     initBattery();
     initGPIO();
     initNeopixel();
+    initBuzzer();
 #if defined(SUPPORT_OLED) || defined(SUPPORT_TFT)
     initDisplay();
 #endif
