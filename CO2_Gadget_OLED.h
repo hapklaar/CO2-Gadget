@@ -15,8 +15,8 @@
 #include <U8g2lib.h>
 #include "bootlogo.h"
 #include "icons.h"
-U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Frame Buffer: clearBuffer/sendBuffer. More RAM usage, Faster
-// U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Page Buffer: firstPage/nextPage. Less RAM usage, Slower
+U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);  // Frame Buffer: clearBuffer/sendBuffer. More RAM usage, Faster
+// U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);  // Frame Buffer: u8g2.clearBuffer, u8g2.sendBuffer. Less RAM usage, Slower
 
 char oled_msg[20];
 int displayWidth = 128;
@@ -24,7 +24,18 @@ int displayHeight = 64;
 // #define MENUFONT u8g2_font_6x10_mf
 #define MENUFONT u8g2_font_5x8_mf
 
-void setDisplayBrightness(uint32_t newBrightness) {
+void setDisplayReverse(bool reverse) {
+    if (reverse) {
+        Serial.printf("-->[OLED] Set display reversed\n");
+        u8g2.setDisplayRotation(U8G2_R2);
+    } else {
+        Serial.printf("-->[OLED] Set display normal\n");
+        u8g2.setDisplayRotation(U8G2_R0);
+    }
+    shouldRedrawDisplay = true;
+}
+
+void setDisplayBrightness(uint16_t newBrightness) {
   Serial.printf("-->[OLED] Setting display brightness value at %d\n", newBrightness);
   u8g2.setContrast(newBrightness);
   actualDisplayBrightness = newBrightness;
@@ -63,7 +74,7 @@ bool displayNotification(String notificationText, String notificationText2, noti
   return true;
 }
 
-void initDisplay() {
+void initDisplay(bool fastMode = false) { // fastMode not used in OLED display. Just for compatibility with TFT and other displays.
   Serial.printf("-->[OLED] Initialized: \t#%s#\n",
                 ((u8g2.begin()) ? "OK" : "Failed"));
   u8g2.firstPage();
@@ -79,16 +90,22 @@ void initDisplay() {
   } else {
     u8g2.setDisplayRotation(U8G2_R0);
   }
+  setDisplayBrightness(DisplayBrightness);
   displaySplashScreen();
   delay(1000);
 }
 
-void displayShowValues() {
+void displayShowValues(bool forceRedraw = false) {  
+    if ((co2 == 0) || (co2 > 9999)) return;
+    String co2Str = String(co2);
+    if (co2Str.length() < 4) {
+        co2Str = " " + co2Str;
+    }
     u8g2.firstPage();
     do {
         u8g2.setFont(u8g2_font_7Segments_26x42_mn);
         u8g2.setCursor(0, 44);
-        u8g2.print(co2);
+        u8g2.print(co2Str);
         u8g2.setFont(u8g2_font_5x7_tf);
         u8g2.setCursor(110, 51);
         u8g2.print("ppm");

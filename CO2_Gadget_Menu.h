@@ -381,6 +381,8 @@ MENU(wifiConfigMenu, "WIFI Config", doNothing, noEvent, wrapStyle
 #ifdef SUPPORT_OTA
   ,SUBMENU(activeOTAMenu)
 #endif
+  ,OP("Set fixed IP", doNothing, noEvent)
+  ,OP("in WEB config.", doNothing, noEvent)
   ,EXIT("<Back"));
 
 
@@ -597,7 +599,12 @@ result doSetvRef(eventMask e, navNode &nav, prompt &item) {
   return proceed;
 }
 
+TOGGLE(hasBattery, hasBatteryMenu, "Has battery: ", doNothing, noEvent, wrapStyle
+  ,VALUE("ON", true, doNothing, noEvent)
+  ,VALUE("OFF", false, doNothing, noEvent));
+
 MENU(batteryConfigMenu, "Battery Config", doNothing, noEvent, wrapStyle
+  ,SUBMENU(hasBatteryMenu)
   ,FIELD(batteryVoltage, "Battery:", "V", 0, 9, 0, 0, doNothing, noEvent, noStyle)
   ,FIELD(vRef, "Voltage ref:", "", 0, 2000, 10, 10, doSetvRef, anyEvent, noStyle)
   ,FIELD(batteryFullyChargedMillivolts, "Bat Full (mV):", "", 0, 4200, 10, 10, doNothing, noEvent, noStyle)
@@ -629,7 +636,6 @@ MENU(temperatureConfigMenu, "Temp Config", doNothing, noEvent, wrapStyle
 TOGGLE(displayOffOnExternalPower, activeDisplayOffMenuOnBattery, "Off on USB: ", doNothing,noEvent, wrapStyle
   ,VALUE("ON", true, doNothing, noEvent)
   ,VALUE("OFF", false, doNothing, noEvent));
-
   
 result doDisplayReverse(eventMask e, navNode &nav, prompt &item) {
   #ifdef DEBUG_ARDUINOMENU
@@ -650,37 +656,48 @@ result doDisplayReverse(eventMask e, navNode &nav, prompt &item) {
     u8g2.setDisplayRotation(U8G2_R0);
   }
   #endif
+  #ifdef SUPPORT_EINK
+  if (displayReverse) {
+    display.setRotation(3);
+  } else {
+    display.setRotation(1);
+  }
+  #endif
   nav.target-> dirty = true;
   return proceed;
 }
 
 TOGGLE(displayReverse, activeDisplayReverse, "Orient: ", doNothing, noEvent, wrapStyle
-  ,VALUE("Normal", false, doDisplayReverse, enterEvent)
-  ,VALUE("Reversed", true, doDisplayReverse, enterEvent));
-
+  ,VALUE("Normal",   false, doDisplayReverse, enterEvent)
+  ,VALUE("Reversed", true,  doDisplayReverse, enterEvent));
 
 TOGGLE(displayShowTemperature, activeDisplayShowTemperature, "Temp: ", doNothing, noEvent, wrapStyle
-  ,VALUE("Hide", false, doDisplayReverse, enterEvent)
-  ,VALUE("Show", true, doDisplayReverse, enterEvent));
+  ,VALUE("Hide", false, doNothing, enterEvent)
+  ,VALUE("Show", true,  doNothing, enterEvent));
 
 TOGGLE(displayShowHumidity, activeDisplayShowHumidity, "Humidity: ", doNothing, noEvent, wrapStyle
-  ,VALUE("Hide", false, doDisplayReverse, enterEvent)
-  ,VALUE("Show", true, doDisplayReverse, enterEvent));
+  ,VALUE("Hide", false, doNothing, enterEvent)
+  ,VALUE("Show", true,  doNothing, enterEvent));
 
 TOGGLE(displayShowBattery, activeDisplayShowBattery, "Battery: ", doNothing, noEvent, wrapStyle
-  ,VALUE("Hide", false, doDisplayReverse, enterEvent)
-  ,VALUE("Show", true, doDisplayReverse, enterEvent));
+  ,VALUE("Hide", false, doNothing, enterEvent)
+  ,VALUE("Show", true,  doNothing, enterEvent));
 
 TOGGLE(displayShowCO2, activeDisplayShowCO2, "CO2: ", doNothing, noEvent, wrapStyle
-  ,VALUE("Hide", false, doDisplayReverse, enterEvent)
-  ,VALUE("Show", true, doDisplayReverse, enterEvent));
+  ,VALUE("Hide", false, doNothing, enterEvent)
+  ,VALUE("Show", true,  doNothing, enterEvent));
 
 TOGGLE(displayShowPM25, activeDisplayShowPM25, "PM2.5: ", doNothing, noEvent, wrapStyle
-  ,VALUE("Hide", false, doDisplayReverse, enterEvent)
-  ,VALUE("Show", true, doDisplayReverse, enterEvent));
+  ,VALUE("Hide", false, doNothing, enterEvent)
+  ,VALUE("Show", true,  doNothing, enterEvent));
 
 MENU(displayConfigMenu, "Display Config", doNothing, noEvent, wrapStyle
+#ifdef ARDUINO_LILYGO_T_DISPLAY_S3
+  ,FIELD(DisplayBrightness, "Brightness:", "", 1, 16, 1, 1, doSetDisplayBrightness, anyEvent, wrapStyle)
+#endif  
+#if defined(TTGO_TDISPLAY) || defined(ST7789_240x320)
   ,FIELD(DisplayBrightness, "Brightness:", "", 10, 255, 10, 10, doSetDisplayBrightness, anyEvent, wrapStyle)
+#endif  
   ,FIELD(timeToDisplayOff, "Time To Off:", "", 0, 900, 5, 5, doNothing, noEvent, wrapStyle)
   ,SUBMENU(activeDisplayOffMenuOnBattery)
   ,SUBMENU(activeDisplayReverse)
@@ -815,10 +832,9 @@ public:
   }
 };
 
-
 MENU(informationMenu, "Information", doNothing, noEvent, wrapStyle
   ,FIELD(batteryVoltage, "Battery", "V", 0, 9, 0, 0, doNothing, noEvent, noStyle)
-  ,OP("Comp " BUILD_GIT, doNothing, noEvent)
+  ,OP("Comp " __DATE__ " at " __TIME__, doNothing, noEvent)
   ,OP("Version " CO2_GADGET_VERSION CO2_GADGET_REV, doNothing, noEvent)
   ,OP("" FLAVOUR, doNothing, noEvent)
   ,altOP(altPromptUptime, "", doNothing, noEvent)
@@ -871,17 +887,6 @@ serialOut outSerial(Serial, serialTops);
 #define White RGB565(255, 255, 255)
 #define DarkerOrange RGB565(255, 140, 0)
 
-// TFT color table
-// const colorDef<uint16_t> colors[6] MEMMODE = {
-//     //{{disabled normal,disabled selected}, {enabled normal,  enabled selected, enabled editing}}
-//     {{(uint16_t)Black,  (uint16_t)Black},  {(uint16_t)Black,  (uint16_t)Blue,   (uint16_t)Blue}},   // bgColor
-//     {{(uint16_t)White,  (uint16_t)White},  {(uint16_t)White,  (uint16_t)White,  (uint16_t)White}},  // fgColor
-//     {{(uint16_t)Red,    (uint16_t)Red},    {(uint16_t)Yellow, (uint16_t)Yellow, (uint16_t)Yellow}}, // valColor
-//     {{(uint16_t)White,  (uint16_t)White},  {(uint16_t)White,  (uint16_t)White,  (uint16_t)White}},  // unitColor
-//     {{(uint16_t)White,  (uint16_t)Gray},   {(uint16_t)Black,  (uint16_t)Red,    (uint16_t)White}},  // cursorColor
-//     {{(uint16_t)White,  (uint16_t)Yellow}, {(uint16_t)Black,  (uint16_t)Blue,   (uint16_t)Red}},    // titleColor
-// };
-
 const colorDef<uint16_t> colors[6] MEMMODE = {
     //{{disabled normal,disabled selected}, {enabled normal,  enabled selected,       enabled editing}}
     {{(uint16_t)Black,  (uint16_t)Black},  {(uint16_t)Black,  (uint16_t)Blue,         (uint16_t)Blue}},   // bgColor
@@ -919,6 +924,7 @@ panelsList pList(panels, nodes, 1); // a list of panels and nodes
 idx_t eSpiTops[MAX_DEPTH] = {0};
 TFT_eSPIOut eSpiOut(tft, colors, eSpiTops, pList, fontW, fontH + 1);
 menuOut *constMEM outputs[] MEMMODE = {&outSerial, &eSpiOut}; // list of output devices
+menuOut *constMEM outputsNoSerial[] MEMMODE = {&eSpiOut}; // list of output devices
 #endif // SUPPORT_TFT
 
 #ifdef SUPPORT_OLED
@@ -1030,81 +1036,64 @@ void loadTempArraysWithActualValues() {
 
 // when menu is suspended
 result idle(menuOut &o, idleEvent e) {
-    if (e == idleStart) {
+    switch (e) {
+        case idleStart:
 #ifdef DEBUG_ARDUINOMENU
-        Serial.println("-->[MENU] Event idleStart");
+            Serial.println("-->[MENU] Event idleStart");
 #endif
-        setInMenu(false);
-    } else if (e == idling) {  // When out of menu (CO2 Monitor is doing his business)
+            setInMenu(false);
+            //       nav.poll();
+
+#if defined(SUPPORT_TFT) || defined(SUPPORT_OLED) || defined(SUPPORT_EINK)
+            displayShowValues(true);
+#endif
+            break;
+        case idling:
 #ifdef DEBUG_ARDUINOMENU
-        Serial.println("-->[MENU] Event iddling");
+            Serial.println("-->[MENU] Event iddling");
 #endif
-#if defined(SUPPORT_TFT) || defined(SUPPORT_OLED)
-        // displayShowValues();
+#if defined(SUPPORT_TFT) || defined(SUPPORT_OLED) || defined(SUPPORT_EINK)
+            displayShowValues(shouldRedrawDisplay);
+            shouldRedrawDisplay = false;
 #endif
-    } else if (e == idleEnd) {
+            break;
+        case idleEnd:
 #ifdef DEBUG_ARDUINOMENU
-        Serial.println("-->[MENU] Event idleEnd");
+            Serial.println("-->[MENU] Event idleEnd");
 #endif
-        setInMenu(true);
-        loadTempArraysWithActualValues();
-    } else {
+            setInMenu(true);
+            //   displayNotification("Enter menu", notifyInfo);
+            //   delay(1000);
+            loadTempArraysWithActualValues();
+            break;
+        default:
 #ifdef DEBUG_ARDUINOMENU
-        Serial.print("-->[MENU] Unhandled event: ");
-        Serial.println(e);
+            Serial.print("-->[MENU] Unhandled event: ");
+            Serial.println(e);
 #endif
+            break;
     }
+    // displayNotification("Idle end", notifyInfo);
+    // delay(1000);
     return proceed;
 }
 
-void menuLoop() {
-    uint16_t timeToWaitForImprov = 5;                   // Time to wait for Improv-WiFi to connect on startup
-    if (Serial.available() && Serial.peek() == 0x2A) {  // 0x2A is the '*' character.
-        // inMenu = true;
-        // if (inMenu) {
-            nav.doInput();  // Do input, even if no display, as serial menu needs this
-        // }
-    }
-
-    if (millis() < timeInitializationCompleted + timeToWaitForImprov * 1000) {  // Wait before starting the menu to avoid issues with Improv-WiFi
-#if defined(SUPPORT_TFT) || defined(SUPPORT_OLED)
-        displayShowValues();
-#endif
-        return;
-    }
-
-    if (activeWIFI) {
-        activeMQTTMenu[0].enable();
-    } else {
-        activeMQTTMenu[0].disable();
-    }
-
-#if defined(SUPPORT_TFT)
+void menuLoopTFT() {
+#ifdef SUPPORT_TFT
     if ((wifiChanged) && (!inMenu)) {
         wifiChanged = false;
+        displayNotification("To clear display", notifyInfo);
+        delay(1000);
         tft.fillScreen(TFT_BLACK);
+        displayNotification("Display cleared", notifyInfo);
+        delay(1000);
     }
-    if (inMenu) {
-        nav.poll();  // this device only draws when needed
-    }
-    nav.doOutput();
+
+    nav.doInput();
     if (nav.sleepTask) {
-        tft.unloadFont();
-        displayShowValues();
-        tft.loadFont(SMALL_FONT);
-    }
-#elif defined(SUPPORT_OLED)
-    if (nav.sleepTask) {
-        displayShowValues();
+        displayShowValues(shouldRedrawDisplay);
+        shouldRedrawDisplay = false;
     } else {
-        if (nav.changed(0)) {
-            u8g2.firstPage();
-            do nav.doOutput();
-            while (u8g2.nextPage());
-        }
-    }
-#else  // For serial only output
-    if (!nav.sleepTask) {
         if (nav.changed(0)) {
             nav.doOutput();
         }
@@ -1112,13 +1101,49 @@ void menuLoop() {
 #endif
 }
 
-void menu_init() {
+void menuLoopOLED() {
+#ifdef SUPPORT_OLED
+    if (nav.sleepTask) {
+        displayShowValues(shouldRedrawDisplay);
+        shouldRedrawDisplay = false;
+    } else {
+        if (nav.changed(0)) {
+            u8g2.firstPage();
+            do nav.doOutput();
+            while (u8g2.nextPage());
+        }
+    }
+#endif
+}
+
+void menuLoopEINK() {
+#ifdef SUPPORT_EINK
+    nav.doInput();
+    if (nav.sleepTask) {
+        displayShowValues(false);
+        shouldRedrawDisplay = false;
+    } else {
+        if (nav.changed(0)) {
+            nav.doOutput();
+        }
+    }
+#endif
+}
+
+void initMenu() {
+#ifdef DEBUG_ARDUINOMENU
+    Serial.println("-->[MENU] Initializing menu...");
+#endif
+    menuInitialized = true;
+    mustInitMenu = false;
+    waitingForImprov = false;
+    publishMQTTLogData("-->[MENU] Initializing menu...");
 #ifdef SUPPORT_TFT
     tft.loadFont(SMALL_FONT);
 #endif
     nav.idleTask = idle;  // function to be called when menu is suspended
-    nav.idleOn(idle);
-    // nav.timeOut = 30; // Removed timeout as it was causing issues with the display clean at exit from menu by timeout
+    nav.idleOn(idle);     // start the menu in idle state
+    nav.timeOut = 20;
     nav.showTitle = true;
     options->invertFieldKeys = true;
     nav.useUpdateEvent = true;
@@ -1132,7 +1157,7 @@ void menu_init() {
     if (!activeWIFI) {
         activeMQTTMenu[0].disable();  // Make MQTT active field unselectable if WIFI is not active
     }
-    batteryConfigMenu[0].disable();  // Make information field unselectable
+    batteryConfigMenu[1].disable();  // Make information field unselectable
     temperatureConfigMenu[0].disable();
     setCO2Sensor = selectedCO2Sensor;
 #ifdef DEBUG_ARDUINOMENU
@@ -1142,9 +1167,107 @@ void menu_init() {
 
     loadTempArraysWithActualValues();
     Serial.println("");
+    Serial.println("**********************************************************************");
     Serial.println("-->[MENU] Use keys + - * /");
     Serial.println("-->[MENU] to control the menu navigation");
+    Serial.println("**********************************************************************");
     Serial.println("");
+}
+
+bool menuEntryCharacterReceived() {
+    // If the first byte is '*', then it's a command from the serial menu
+    if (Serial.available() && Serial.peek() == 0x2A) {
+#ifdef DEBUG_ARDUINOMENU
+        Serial.println("-->[MENU] Serial command detected.");
+#endif
+        return true;
+    }
+    return false;
+}
+
+void menuLoop() {
+#ifdef DEBUG_ARDUINOMENU
+    if ((!inMenu) && (shouldRedrawDisplay)) Serial.println("-->[MENU] Entering menu loop with shouldRedrawDisplay: " + String(shouldRedrawDisplay) + " and redrawDisplayOnNextLoop: " + String(redrawDisplayOnNextLoop));
+#endif
+    if (isDownloadingBLE) return;  // Do not run the menu if downloading BLE
+
+    if ((inMenu) && isMenuDirty) {
+#ifdef DEBUG_ARDUINOMENU
+        Serial.println("-->[MENU] Menu is dirty. Restarting menu...");
+#endif
+        isMenuDirty = false;
+        mainMenu.dirty = true;
+    }
+
+    if (mustInitMenu) {
+        initMenu();
+#ifdef DEBUG_ARDUINOMENU
+        Serial.println("-->[MENU] Initializing menu by mustInitMenu = true...");
+#endif
+    }
+
+    // While we are waiting for Improv-WiFi to start, check if user is trying to access the menu to disable Improv-WiFi
+    if ((waitingForImprov) && (menuEntryCharacterReceived())) {
+        waitingForImprov = false;
+#ifdef DEBUG_ARDUINOMENU
+        Serial.println("-->[MENU] Serial command detected. Improv-WiFi disabled.");
+        publishMQTTLogData("-->[MENU] Serial command detected. Improv-WiFi disabled.");
+#endif
+        if (!menuInitialized) initMenu();
+    }
+
+    if (!menuInitialized) {
+#if defined(SUPPORT_TFT) || defined(SUPPORT_OLED) || defined(SUPPORT_EINK)
+#ifdef DEBUG_ARDUINOMENU
+        if (shouldRedrawDisplay) Serial.println("-->[MENU] Displaying values while waiting for Improv-WiFi to start with shouldRedrawDisplay: " + String(shouldRedrawDisplay) + " and redrawDisplayOnNextLoop: " + String(redrawDisplayOnNextLoop));
+#endif
+        displayShowValues(shouldRedrawDisplay);
+#endif
+        shouldRedrawDisplay = false;
+#ifdef DEBUG_ARDUINOMENU
+        static unsigned long lastPrintTime2 = 0;
+        if (millis() - lastPrintTime2 >= 1000) {
+            Serial.println("-->[MENU] Waiting for Improv-WiFi to start...");
+            lastPrintTime2 = millis();
+        }
+#endif
+        return;
+    }
+
+#ifdef DEBUG_ARDUINOMENU
+    if (Serial.available()) {
+        Serial.print("-->[MENU] Received unknow byte: ");
+        Serial.println(Serial.peek(), HEX);
+    }
+#endif
+
+#ifdef DEBUG_ARDUINOMENU
+    static unsigned long lastPrintTime = 0;
+    if (millis() - lastPrintTime >= 1000) {
+        Serial.println("-->[MENU] menuLoop. shouldRedrawDisplay: " + String(shouldRedrawDisplay) + " and redrawDisplayOnNextLoop: " + String(redrawDisplayOnNextLoop));
+        lastPrintTime = millis();
+    }
+#endif
+
+    if (activeWIFI) {
+        activeMQTTMenu[0].enable();
+    } else {
+        activeMQTTMenu[0].disable();
+    }
+
+#if defined(SUPPORT_TFT)
+    menuLoopTFT();
+#elif defined(SUPPORT_OLED)
+    menuLoopOLED();
+#elif defined(SUPPORT_EINK)
+    menuLoopEINK();
+#else  // For serial only output with display connected
+    if (!nav.sleepTask) {
+        if (nav.changed(0)) {
+            nav.doOutput();
+        }
+    }
+#endif
 }
 
 #endif  // CO2_Gadget_Menu_h

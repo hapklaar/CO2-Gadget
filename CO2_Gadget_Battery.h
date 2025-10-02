@@ -34,47 +34,45 @@ void initBattery() {
 
 void readBatteryVoltage() {
     float batteryVoltageNow = 0;
+
     if ((millis() - lastTimeBatteryRead >= timeBetweenBatteryRead * 1000) || (lastTimeBatteryRead == 0)) {
         for (uint8_t i = 0; i < batterySamples; i++) {
-            batteryVoltageNow += float(battery.voltage()) / 1000;
-            delay(10);
+            batteryVoltageNow += float(battery.voltage(20)) / 1000;
+            delay(5);
         }
         batteryVoltageNow /= 3;
         batteryVoltage = batteryVoltageNow;
-        batteryLevel = battery.level(batteryVoltage*1000);
+        batteryLevel = battery.level(batteryVoltage * 1000);
         lastTimeBatteryRead = millis();
-        
-        // If battery voltage is more than 9% of the fully charged battery voltage (~4.58V), assume it's working on external power
-        workingOnExternalPower = (batteryVoltageNow * 1000 > batteryFullyChargedMillivolts + (batteryFullyChargedMillivolts * 9 / 100));
-        
-        // publishMQTTLogData("Battery Level: " + String(batteryLevel) + "%   Battery voltage changed from: " + String(lastBatteryVoltage) + "V to " + String(batteryVoltage) + "V");
+
+        // If battery voltage is more than 6% of the fully charged battery voltage (~4.45V) or if battery voltage is less
+        // than 1V (no battery connected to sense pin), then assume that the device is working on external power.
+        if (!hasBattery) {
+            workingOnExternalPower = true;
+        } else {
+            const float workingOnExternalPowerThreshold = batteryFullyChargedMillivolts * 1.06 / 1000;
+            workingOnExternalPower = ((batteryVoltageNow) > workingOnExternalPowerThreshold) || (batteryVoltageNow < 1);
+        }
+
+        // workingOnExternalPower = (batteryVoltageNow * 1000 > batteryFullyChargedMillivolts + (batteryFullyChargedMillivolts * 6 / 100)) || (batteryVoltageNow < 1);
+        // publishMQTTLogData("-->[TFT ] Battery Level: " + String(batteryLevel) + "%   Battery voltage: " + String(batteryVoltageNow) + "V  External power: " + String(workingOnExternalPower));
+        // if (!inMenu) {
+        //     Serial.println("-->[TFT ] Battery Level: " + String(batteryLevel) + "%   Battery voltage: " + String(batteryVoltage) + "V  External power: " + String(workingOnExternalPower) + " workingOnExternalPowerThreshold: " + String(workingOnExternalPowerThreshold));
+        //     delay(20);
+        // }
+        //     publishMQTTLogData("-->[TFT ] Battery Level: " + String(batteryLevel) + "%   Battery voltage: " + String(batteryVoltageNow) + "V  External power: " + String(workingOnExternalPower) + " workingOnExternalPowerThreshold: " + String(workingOnExternalPowerThreshold));
     }
 }
 
-// #include <esp_adc_cal.h>
-
-// void readEfuse() {
-//     esp_adc_cal_characteristics_t chars;
-//     auto val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &chars);
-//     if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF) {
-//         Serial.println("eFuse Vref");
-//     } else if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP) {
-//         Serial.println("Two Point");
-//     } else {
-//         Serial.println("Default");
-//     }
-// }
-
 void batteryLoop() {
-    float batteryVoltageNow = 0;
-        readBatteryVoltage();
-        // Serial.printf("-->[BATT] Battery Level: %d%%. Battery voltage: %.4fV\n", batteryLevel, batteryVoltageNow);
-        if (!inMenu) {
-            if (abs(lastBatteryVoltage - batteryVoltage) >= 0.1) {  // If battery voltage changed by at least 0.1V, update battery level                
-                // Serial.printf("-->[BATT] Battery Level: %d%%. Battery voltage changed from: %.4fV to %.4fV\n", batteryLevel, lastBatteryVoltage, batteryVoltage);
-                lastBatteryVoltage = batteryVoltage;
-            }
+    if (isDownloadingBLE) return;
+    readBatteryVoltage();
+    if (!inMenu) {
+        if (abs(lastBatteryVoltage - batteryVoltage) >= 0.1) {  // If battery voltage changed by at least 0.1V, update battery level
+            // Serial.printf("-->[BATT] Battery Level: %d%%. Battery voltage changed from: %.4fV to %.4fV\n", batteryLevel, lastBatteryVoltage, batteryVoltage);
+            lastBatteryVoltage = batteryVoltage;
         }
+    }
 }
 
 #endif  // CO2_Gadget_Battery_h
